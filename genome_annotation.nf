@@ -1,5 +1,3 @@
-#!/usr/bin/env groovy
-
 nextflow.enable.dsl=2
 
 // Pipeline Description:
