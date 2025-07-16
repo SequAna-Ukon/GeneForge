@@ -134,14 +134,3 @@ This work is supported through the Sequencing analysis (SequAna) core facility a
 
 
 For more information or help, please contact [abdoallah.sharaf@uni-konstanz.de].
-
-This is the complete README in markdown format, covering everything from installation to usage, including file formats and options. Feel free to let me know if you'd like to make any additional changes or if there's something else you'd like to add!
-
-
-
-
-
-
-
-
-
