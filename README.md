@@ -110,7 +110,7 @@ rnaseq_dir,funanno_DB,eggnog_DB,stranded,nanopore_mrna,pacbio_isoseq,gc_probabil
 5. **Comparison**: ```COMPARE_BUSCO``` evaluates Funannotate vs. BRAKER3 using BUSCO scores.
 6. **Functional Annotation**: ```FUNCTIONAL_ANNOTATION``` adds functional annotations using funannotate.
 
-![GeneForge Workflow Overview](workflow.png)
+![GeneForge Workflow Overview](workflow_sct.png)
 
 
 ## Debugging
