@@ -52,7 +52,7 @@ nextflow run main_full.nf \
 - ```--optional_csv```: CSV with optional inputs.
 - ```--mode```: ```both```, ```braker```, or ```funannotate```.
 - ```--func_annotation```: Enable or disable functional annotation.
-- ```--outdir```: Output directory (default: ```results```).
+
 
 ## Input Files
 
@@ -85,19 +85,32 @@ rnaseq_dir,funanno_DB,eggnog_DB,stranded,nanopore_mrna,pacbio_isoseq,gc_probabil
 - ```signalp-6.0h.fast.tar.gz``` (**SignalP tarball**).
   
 ## Outputs
+- **RNASeq** (```results/RNASeq/```):[optional: if RNASeq data were used]
+    - ```${name}_RNASeqAll.Stringtie.gtf```: Prepared Stringtie evidence.
+    - ```${name}_RNASeqAll.STAR.bam```: Prepared Smapping file evidence.
+    - ```${name}_RNASeqAll.transcripts.fasta```: Prepared transcripts evidence.
+    - ```${name}_plus_strand.bam```: Prepared Smapping file (forward strand) evidence. [optional: if the ```stranded``` option is used]
+    - ```${name}_minus_strand.bam```: Prepared Smapping file (reverse strand) evidence. [optional: if the ```stranded``` option is used]
+
+- **tRNAScan_SE** (```results/tRNA_scan/```):
+    - ```${name}_trna_annotation.gff```: Eukaryotic tRNAs annotation.
+    - ```${name}_highconf.tbl```: Eukaryotic tRNAs.
+    
 - **Funannotate** (```results/funannotate/```):
-    - ```${name}_predict.gff3```: Gene predictions.
-    - ```${name}.funannotate.prot.fasta```: Protein sequences.
-    - ```${name}_busco_short_summary.txt```: BUSCO summary.
-    - ```${name}_error.log```: Log file.
+    - ```${name}_funannotate.gff3```: Funannotate Gene predictions.
+    - ```${name}.funannotate.prot.fasta```: Funannotate Protein sequences.
+    - ```${name}_busco_funannotate.txt```: Funannotate BUSCO summary.
       
 - **BRAKER3** (```results/braker/```):
-    - ```braker.gtf```: Gene predictions.
-    - ```${name}_braker_error.log```: Log file.
-
-- **Functional Annotation** (```results/functional_annotation/```):
-    - ```${name}_functional_annotation.gff3```: Annotated GFF3.
-    - ```${name}_error.log```: Log file.
+    - ```${name}_braker.gff3```: Braker Gene predictions.
+    - ```${name}.braker.prot.fasta```: Braker Protein sequences.
+    - ```${name}_busco_braker.txt```: Braker BUSCO summary.
+      
+- **BUSCO Comparison** (```results/busco_comparison/```): [optional: if the ```both``` option is used]
+    - ```busco_comparison.txt```: A report that summeries the BUSCO scores and which gene prediction was used for the functional annotation if  the ```--func_annotation``` option is used.
+      
+- **Functional Annotation** (```results/functional_annotation/```): [optional: if the ```--func_annotation``` option is used]
+    - ```${name}_functional_annotation/annotate_results/*```: Directory contains all funannotate annotattion outputs.
 
 ## Workflow Overview
 
@@ -111,16 +124,6 @@ rnaseq_dir,funanno_DB,eggnog_DB,stranded,nanopore_mrna,pacbio_isoseq,gc_probabil
 6. **Functional Annotation**: ```FUNCTIONAL_ANNOTATION``` adds functional annotations using funannotate.
 
 ![GeneForge Workflow Overview](workflow_sct.png)
-
-
-## Debugging
-Check logs for errors:
-
-````bash
-cat results/funannotate/*_error.log
-cat results/braker/*_braker_error.log
-cat results/functional_annotation/*_error.log
-````
 
 ## License
 
