@@ -129,6 +129,16 @@ rnaseq_dir,funanno_DB,eggnog_DB,stranded,nanopore_mrna,pacbio_isoseq,gc_probabil
 
 This project is licensed under the MIT License. See the LICENSE file for details.
 
+## Cite Us
+
+If you use this software, please cite it as below:
+
+``` commandline
+Sharaf, A., & Voolstra, C. R. (2025).
+SequAna-Ukon/GeneForge: GeneForge v1.0 (v1.0). Zenodo.
+https://doi.org/10.5281/zenodo.16631467
+```
+
 ## Acknowledgments
 This work is supported through the Sequencing analysis (SequAna) core facility at the University of Konstanz [https://www.biologie.uni-konstanz.de/sequana/]
 
