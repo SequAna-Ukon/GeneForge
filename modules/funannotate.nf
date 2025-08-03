@@ -139,14 +139,14 @@ process FUNANNOTATE {
         echo ">>> Running short-read training..." >> \${prefix}_error.log
         funannotate train --species "${species}" -i ${genome_unmasked} -o funannotate_\${prefix} \
             -l ${rnaseq_r1} -r ${rnaseq_r2} --no_trimmomatic ${stranded_flag} \
-            --cpus ${task.cpus} 2>> \${prefix}_error.log
+            --cpus ${task.cpus} --memory ${task.memory.toGiga()}G 2>> \${prefix}_error.log
     fi
 
     # THEN long-read training (if longread exists)
     if [[ -n "${longread_flag}" ]]; then
         echo ">>> Running long-read training..." >> \${prefix}_error.log
         funannotate train --species "${species}" -i ${genome_unmasked} -o funannotate_\${prefix} \
-            ${longread_flag} --cpus ${task.cpus} 2>> \${prefix}_error.log
+            ${longread_flag} --cpus ${task.cpus} --memory ${task.memory.toGiga()}G 2>> \${prefix}_error.log
     fi
 
     
