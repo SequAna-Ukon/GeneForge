@@ -2,7 +2,7 @@ process FUNCTIONAL_ANNOTATION {
     tag "${meta.id}"
     label 'process_high'
 
-    conda 'bioconda::funannotate=1.8.17 bioconda::eggnog-mapper=2.1.9'
+    conda 'bioconda::funannotate=1.8.17 bioconda::eggnog-mapper=2.1.13'
 
     publishDir "${params.outdir}/functional_annotation", mode: 'copy'
 
