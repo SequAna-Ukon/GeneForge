@@ -40,7 +40,7 @@ git clone https://github.com/yourusername/GeneForge.git
 Run the pipeline with:
 
 ```bash
-nextflow run main_full.nf \
+nextflow run GeneForge/main.nf \
   --mandatory_csv mandatory.csv \
   --optional_csv optional.csv \
   --mode both \
