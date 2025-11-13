@@ -4,7 +4,7 @@ process FUNANNOTATE {
     tag "${meta.id}"
     label 'process_high'
 
-    conda 'bioconda::funannotate=1.8.17 bioconda::agat=1.4.0 bioconda::gffread=0.12.7 bioconda::snap bioconda::busco=5.4.7 bioconda::transdecoder=5.5.0'
+    conda 'bioconda::funannotate=1.8.17 bioconda::agat=1.4.0 bioconda::gffread=0.12.7 bioconda::snap bioconda::busco=5.4.7 bioconda::transdecoder=5.5.0 bioconda::trinity=2.8.5'
  
     publishDir "${params.outdir}/funannotate", mode: 'copy', pattern: '*_funannotate.gff3'
     publishDir "${params.outdir}/funannotate", mode: 'copy', pattern: '*.funannotate.prot.fasta'
