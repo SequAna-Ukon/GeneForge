@@ -120,7 +120,7 @@ process FUNCTIONAL_ANNOTATION {
     # funannotate_db setup
     if ${use_setup}; then
         mkdir -p ./funannotate_db
-        funannotate setup --install all -b ${busco_db_fun} -f --database ./funannotate_db
+        funannotate setup --install all -b ${busco_db_fun} --wget -f --database ./funannotate_db
         export FUNANNOTATE_DB=\$(realpath ./funannotate_db)
     else
         export FUNANNOTATE_DB="${funanno_db}"
