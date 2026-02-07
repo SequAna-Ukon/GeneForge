@@ -122,13 +122,4 @@ Supported by the Sequencing Analysis (SequAna) Core Facility at the University o
 
 Contact: [abdoallah.sharaf@uni-konstanz.de]
 
-Would you like me to help you generate a CHANGELOG.md or a CONTRIBUTING.md file to further professionalize the repository?
-
-
-
-
-
-
-
-
 
