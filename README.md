@@ -63,6 +63,7 @@ The pipeline follows a modular architecture using Nextflow DSL2:
     * **AGAT** is used to resolve overlaps and finalize GFF3 coordinates.
 7. **Functional Annotation**: `FUNCTIONAL_ANNOTATION` (Optional) adds functional descriptors to the finalized consensus.
 
+![GeneForge Workflow Overview](workflow_sct.jpg)
 
 ## Usage
 
