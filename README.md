@@ -115,7 +115,7 @@ GeneForge automates the use of third-party tools. Users are responsible for comp
 ## Citations
 If you use GeneForge in your research, please cite:
 
-**Sharaf, A., & Voolstra, C. R. (2025)**. GeneForge: A Nextflow Pipeline for Gene Prediction and Functional Annotation. Zenodo. https://doi.org/10.5281/zenodo.16631467
+**Sharaf, A., & Voolstra, C. R. (2026)**. GeneForge v2.0: A Nextflow Pipeline for Gene Prediction and Functional Annotation. Zenodo. https://doi.org/10.5281/zenodo.18520645
 
 ## Acknowledgments
 Supported by the Sequencing Analysis (SequAna) Core Facility at the University of Konstanz.
