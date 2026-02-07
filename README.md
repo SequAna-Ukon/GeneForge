@@ -1,4 +1,4 @@
-# GeneForge v. 2.0
+# GeneForge
 A Nextflow Pipeline for Gene Prediction and Functional Annotation
 
 **GeneForge** is a flexible Nextflow pipeline for gene prediction and optional functional annotation of eukaryotic genomes. It integrates BRAKER3 and FunAnnotate for gene prediction, compares their quality using BUSCO, and supports functional annotation with tools such as Phobius, InterProScan, and eggNOG-mapper. The pipeline offers three run modes: BRAKER3 only, FunAnnotate only, or both, with customizable parameters for species, input paths, and annotation preferences.
