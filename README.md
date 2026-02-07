@@ -46,6 +46,24 @@ Triggered by the `--func_annotation` flag:
 
 ---
 
+## Workflow Overview
+
+The pipeline follows a modular architecture using Nextflow DSL2:
+
+1. **tRNA Scanning**: `TRNASCAN_SE` identifies eukaryotic tRNAs.
+2. **RNA-seq Processing**: `RNASEQ_PROCESSING` aligns FASTQ files and generates BAM/GTF evidence.
+3. **Gene Prediction**:
+    * `BRAKER_RUN`: Evidence-based gene prediction using RNA-seq and protein homology.
+    * `FUNANNOTATE`: Parallel prediction integrating RNA-seq, protein, and tRNA data.
+4. **Post-processing**: `BRAKER_POST` standardizes formats and prepares outputs for comparison.
+5. **Comparison**: `COMPARE_BUSCO` evaluates results to select the highest-quality "Backbone."
+6. **Merge & Complement (`MERGE_ANNOTATIONS`)**: 
+    * The Backbone is complemented with missing models from the alternative tool.
+    * tRNA annotations are merged into the consensus.
+    * **AGAT** is used to resolve overlaps and finalize GFF3 coordinates.
+7. **Functional Annotation**: `FUNCTIONAL_ANNOTATION` (Optional) adds functional descriptors to the finalized consensus.
+
+
 ## Usage
 
 GeneForge uses CSV files to manage complex metadata and file paths.
