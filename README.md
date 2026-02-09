@@ -80,11 +80,13 @@ nextflow run GeneForge/main.nf \
 **1.** ```mandatory.csv```
 Used for core genomic data and species information. 
 
-````
-name,species,organism,busco_db,genome_masked,genome_unmasked,genemark_dir
-Cther,Cladocopium thermophilum,other,protists,Cther.masked.fasta,Cther.fasta,/path/to/genemark
-````
+Format: name,species,organism,busco_db,busco_db_fun,genome_masked,genome_unmasked,protein_evidence,genemark_dir
 
+Example:
+````
+name,species,organism,busco_db,busco_db_fun,genome_masked,genome_unmasked,protein_evidence,genemark_dir
+Cther,Cladocopium thermophilum,other,alveolata_odb10,protists,/path/to/Cther.fasta.masked,/path/to/Cther.fasta,/path/to/Alveolata.fa,/path/to/genemark
+````
 **2.** ```optional.csv```
 Used for RNA-seq data, databases, and third-party tool directories. 
 
