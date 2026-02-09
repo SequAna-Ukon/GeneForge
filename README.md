@@ -90,10 +90,19 @@ Cther,Cladocopium thermophilum,other,alveolata_odb10,protists,/path/to/Cther.fas
 **2.** ```optional.csv```
 Used for RNA-seq data, databases, and third-party tool directories. 
 
-````
+Format: 
+```rnaseq_dir,funanno_DB,eggnog_DB,stranded,nanopore_mrna,pacbio_isoseq,gc_probability,func_tool_dir```
+
+Example:
+````csv
 rnaseq_dir,funanno_DB,eggnog_DB,stranded,nanopore_mrna,pacbio_isoseq,gc_probability,func_tool_dir
-/path/to/RNA_Cther,/path/to/funannotate_DB,/path/to/eggnog_DB,reverse,,,0.6377,/path/to/tools
+/path/to/RNA_Cther,/path/to/funannotate_DB,/path/to/eggnog_DB,reverse,/path/to/ONT.fastq.gz,/path/to/pacbio.fastq.gz,0.6377,/path/to/tools
 ````
+
+**Note**: For functional annotation, ```func_tool_dir``` must contain:
+- ```phobius101_linux.tgz``` (**Phobius tarball**).
+- ```signalp-6.0h.fast.tar.gz``` (**SignalP tarball**).
+  
 ## Outputs
 Results are organized in the ```results/``` directory:
 
