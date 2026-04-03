@@ -1,7 +1,7 @@
 process RNASEQ_PROCESSING {
     tag "$meta.id"
     label 'process_medium'
-    conda "bioconda::trimmomatic=0.39 bioconda::star=2.7.10a bioconda::stringtie=2.2.1 bioconda::samtools=1.17 bioconda::perl=5.32.1 bioconda::transdecoder=5.5.0"
+    conda "bioconda::trimmomatic=0.39 bioconda::star=2.7.10a bioconda::stringtie=2.2.1 bioconda::samtools=1.17 conda-forge::perl=5.32.1 bioconda::transdecoder=5.5.0"
 
     publishDir "${params.outdir}/RNASeq", mode: 'copy', pattern: "${meta.id}_RNASeqAll.Stringtie.gtf"
     publishDir "${params.outdir}/RNASeq", mode: 'copy', pattern: "${meta.id}_RNASeqAll.STAR.bam"
