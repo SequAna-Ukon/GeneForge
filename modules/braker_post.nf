@@ -6,7 +6,7 @@ process BRAKER_POST {
     publishDir "${params.outdir}/braker", mode: 'copy', pattern: '*.braker.prot.fasta'
     publishDir "${params.outdir}/braker", mode: 'copy', pattern: '*_busco_braker.txt'
 
-    conda "bioconda::agat=1.4.0 bioconda::gffread=0.12.7 bioconda::busco=5.4.7"
+    conda "bioconda::agat=1.4.0 bioconda::gffread=0.12.7 bioconda::busco=5.4.7 python=3.8 conda-forge::intervaltree"
 
     input:
     tuple val(meta),  // Metadata is first element
