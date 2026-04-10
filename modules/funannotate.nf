@@ -4,7 +4,7 @@ process FUNANNOTATE {
     tag "${meta.id}"
     label 'process_high'
    
-    conda 'bioconda::funannotate=1.8.17 bioconda::pasa=2.5.3 bioconda::mysql=5.7 perl perl-dbi perl-dbd-mysql python=3.8 bioconda::agat=1.4.0 bioconda::gffread=0.12.7 bioconda::snap bioconda::busco=5.4.7 bioconda::transdecoder=5.5.0 bioconda::trinity=2.8.5'
+    conda 'bioconda::funannotate=1.8.17 bioconda::pasa=2.5.3 mysql=5.7 perl perl-dbi perl-dbd-mysql python=3.8 bioconda::agat=1.4.0 bioconda::gffread=0.12.7 bioconda::snap bioconda::busco=5.4.7 bioconda::transdecoder=5.5.0 bioconda::trinity=2.8.5'    
     
     publishDir "${params.outdir}/funannotate", mode: 'copy', pattern: '*_funannotate.gff3'
     publishDir "${params.outdir}/funannotate", mode: 'copy', pattern: '*.funannotate.prot.fasta'
@@ -19,8 +19,8 @@ process FUNANNOTATE {
           val(gtf),
           val(bam),
           val(transcripts),
-          val(rnaseq_r1),
-          val(rnaseq_r2),
+          path(rnaseq_r1),
+          path(rnaseq_r2),
           path(genemark_key),
           path(genemark_tar),
           val(nanopore_mrna),
@@ -156,23 +156,35 @@ EOC
         export FUNANNOTATE_DB="${funanno_db}"
     fi
 
-    # 5. Training
+    # 5. Training (Short-read and Long-read)
+    
+    # Handle Short-read RNA-seq with Header Fixing
     if [[ -f "${rnaseq_r1}" && -s "${rnaseq_r1}" && ! "${rnaseq_r1}" =~ NO_ && \
-          -f "${rnaseq_r2}" && -s "${rnaseq_r2}" && ! "${rnaseq_r2}" =~ NO_ && \
-          -f "${gtf}" && -s "${gtf}" && ! "${gtf}" =~ NO_ && \
-          -f "${bam}" && -s "${bam}" && ! "${bam}" =~ NO_ && \
-          -f "${transcripts}" && -s "${transcripts}" && ! "${transcripts}" =~ NO_ ]]; then
+          -f "${rnaseq_r2}" && -s "${rnaseq_r2}" && ! "${rnaseq_r2}" =~ NO_ ]]; then
         
+        echo ">>> Fixing FASTQ headers for PASA/Trinity..." >> ${prefix}_error.log
+        
+        # This regex catches the space and everything after it, replacing it with /1 or /2
+        # Use zcat to read and gzip to write to save disk space
+        zcat ${rnaseq_r1} | sed 's: .*:/1:' | gzip > R1_fixed.fastq.gz
+        zcat ${rnaseq_r2} | sed 's: .*:/2:' | gzip > R2_fixed.fastq.gz
+
         echo ">>> Running short-read training..." >> ${prefix}_error.log
-        funannotate train --species "${species}" -i ${genome_unmasked} -o funannotate_${prefix} \\
-            -l ${rnaseq_r1} -r ${rnaseq_r2} --no_trimmomatic ${stranded_flag} \\
+        funannotate train --species "${species}" -i ${genome_unmasked} -o funannotate_${prefix} \
+            -l R1_fixed.fastq.gz -r R2_fixed.fastq.gz --no_trimmomatic ${stranded_flag} \
             --pasa_db mysql --cpus ${task.cpus} --memory ${task.memory.toGiga()}G 2>> ${prefix}_error.log
+        
+        # Clean up the large temporary files immediately
+        rm R1_fixed.fastq.gz R2_fixed.fastq.gz
     fi
 
+    # Handle Long-read Training (Appends to the same output folder if short-reads ran first)
     if [[ -n "${longread_flag}" ]]; then
-        funannotate train --species "${species}" -i ${genome_unmasked} -o funannotate_${prefix} \\
+        echo ">>> Running long-read training..." >> ${prefix}_error.log
+        funannotate train --species "${species}" -i ${genome_unmasked} -o funannotate_${prefix} \
             ${longread_flag} --pasa_db mysql --cpus ${task.cpus} --memory ${task.memory.toGiga()}G 2>> ${prefix}_error.log
     fi
+
 
     # 6. Predict
     RNA_FLAGS=""
