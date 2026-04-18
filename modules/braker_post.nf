@@ -6,8 +6,7 @@ process BRAKER_POST {
     publishDir "${params.outdir}/braker", mode: 'copy', pattern: '*.braker.prot.fasta'
     publishDir "${params.outdir}/braker", mode: 'copy', pattern: '*_busco_braker.txt'
 
-    conda "bioconda::agat=1.4.0 bioconda::gffread=0.12.7 bioconda::busco=5.4.7 python=3.8 conda-forge::intervaltree"
-
+    conda "conda-forge::perl=5.32.1 python=3.8 conda-forge::intervaltree bioconda::agat=1.7.0 bioconda::gffread=0.12.7 bioconda::busco=5.4.7"
     input:
     tuple val(meta),  // Metadata is first element
           path(braker_gtf),
@@ -29,6 +28,10 @@ process BRAKER_POST {
     return """
     #!/bin/bash
     set -euo pipefail
+
+    export PATH="\$CONDA_PREFIX/bin:\$PATH"
+    export PERL5LIB="\$CONDA_PREFIX/lib/perl5/5.32/site_perl:\$CONDA_PREFIX/lib/perl5/5.32/vendor_perl:\$CONDA_PREFIX/lib/perl5/5.32/core_perl:\$CONDA_PREFIX/lib/perl5/vendor_perl:\$CONDA_PREFIX/lib/perl5/site_perl:\$CONDA_PREFIX/lib/perl5\${PERL5LIB:+:\$PERL5LIB}"
+
     
     if [[ -f "${braker_dir}/GeneMark-ETP/rnaseq/stringtie/transcripts_merged.gff" ]]; then
         echo ">>> Adding UTRs..."
@@ -43,6 +46,7 @@ process BRAKER_POST {
     fi
   
     echo ">>> Merging tRNAs..."
+   
     agat_sp_merge_annotations.pl --gff braker.gff3 --gff ${trna_gff} --out merged.gff
 
     echo ">>> Post-filtering..."
