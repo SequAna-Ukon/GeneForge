@@ -73,6 +73,7 @@ process MERGE_ANNOTATIONS {
     # 5. Remove any residual funannotate tRNAs (safety) and fix intoduced "RNA" by AGAT
     grep -v "funannotate"\$'\tRNA\t' with_trna.gff | grep -v "funannotate"\$'\ttRNA\t' > ${prefix}_GeneForge.gff3
     sed -i 's/\tRNA\t/\tncRNA\t/g' ${prefix}_GeneForge.gff3
+    sed -i 's/;anticodon=[^;]*//g' ${prefix}_GeneForge.gff3
     # 6. Extract protein sequences
     gffread ${prefix}_GeneForge.gff3 -g ${genome} -y ${prefix}.GeneForge.prot.fasta \
         >> ${prefix}_merge_annotations.log 2>&1
