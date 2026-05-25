@@ -1,5 +1,3 @@
-nextflow.enable.dsl=2
-
 process BRAKER_RUN {
     tag "${meta.id}"
     label 'process_high'
@@ -98,4 +96,3 @@ process BRAKER_RUN {
   
     """
 }
-
