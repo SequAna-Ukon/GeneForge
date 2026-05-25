@@ -1,62 +1,89 @@
 process FUNCTIONAL_ANNOTATION {
-    tag "${meta.id}"
+    tag "$meta.id"
     label 'process_high'
 
     conda 'bioconda::funannotate=1.8.17 bioconda::eggnog-mapper=2.1.9'
-
     publishDir "${params.outdir}/functional_annotation", mode: 'copy'
 
     input:
-    tuple val(meta), path(protein_fasta), path(gff_file), path(genome_unmasked), path(funanno_db), path(eggnog_db), path(genemark_key), path(genemark_tar), path(phobius_tarball), path(signalp_tarball)
+    tuple val(meta), path(proteins), path(gff), path(genome), path(funannotate_db), path(eggnog_db), path(gm_key), path(gmes_tar), path(phobius_tar), path(signalp_tar)
 
     output:
-    tuple val(meta), path("${meta.id}_functional_annotation/annotate_results/*"), emit: dir, optional: true
+    path("${meta.id}_functional_annotation"), emit: annotation_dir
+    path("${meta.id}_error.log"), emit: log
 
     script:
-    def prefix = meta.id
-    def species = meta.species
-    def busco_db_fun = meta.busco_db_fun
-    def funanno_db = meta.funanno_DB
-    def use_setup = (!funanno_db || !file(funanno_db).exists())
     """
     #!/bin/bash
     set -euo pipefail
-
-    # Setup EggNOG database first to define eggnog_db_dir
-    eggnog_db_dir=""
-    if [ -n "${eggnog_db}" ] && [ -d "${eggnog_db}" ]; then
-        echo "Using provided EggNOG database: ${eggnog_db}" > ${prefix}_error.log
-        eggnog_db_dir=\$(realpath "${eggnog_db}")
-    else
-        echo "EggNOG database directory not found at ${eggnog_db}. Downloading EggNOG database..." >> ${prefix}_error.log
-        mkdir -p eggnog_db
-        if ! download_eggnog_data.py -M -y --data_dir ./eggnog_db 2>> ${prefix}_error.log; then
-             echo "ERROR: Failed to download EggNOG database" >> ${prefix}_error.log
-       
-             exit 1
-        fi
-        eggnog_db_dir=\$(realpath ./eggnog_db)
+    
+    # -------------------------------------------------------------------------
+    # 1. EggNOG database path resolution & installation
+    # -------------------------------------------------------------------------
+    # Your original exact logic—resolves the Nextflow input symlink to the real path
+    export EGGNOG_DB_DIR="\$(realpath ${eggnog_db})"
+    
+    if [[ ! -d "\$EGGNOG_DB_DIR" ]]; then
+        mkdir -p "\$EGGNOG_DB_DIR"
     fi
 
+    # Foolproof file-level check inside the real path
+    if [[ ! -f "\$EGGNOG_DB_DIR/eggnog.db" || ! -f "\$EGGNOG_DB_DIR/eggnog_proteins.dmnd" ]]; then
+        (
+            flock -x 201
+            if [[ ! -f "\$EGGNOG_DB_DIR/eggnog.db" || ! -f "\$EGGNOG_DB_DIR/eggnog_proteins.dmnd" ]]; then
+                echo ">>> Database missing. Downloading directly into: \$EGGNOG_DB_DIR" >> ${meta.id}_error.log
+                
+                BASE_URL="http://eggnog5.embl.de/download/emapperdb-5.0.2"
+                
+                # Download straight into the real resolved path using -P
+                wget -q -P "\$EGGNOG_DB_DIR" "\$BASE_URL/eggnog.db.gz"
+                wget -q -P "\$EGGNOG_DB_DIR" "\$BASE_URL/eggnog_proteins.dmnd.gz"
+                wget -q -P "\$EGGNOG_DB_DIR" "\$BASE_URL/eggnog.taxa.tar.gz"
+                wget -q -P "\$EGGNOG_DB_DIR" "\$BASE_URL/mmseqs.tar.gz"
+                echo ">>> Extracting archives directly within cache path..." >> ${meta.id}_error.log
+                
+                # Decompress inside the real destination folder
+                gunzip -f "\$EGGNOG_DB_DIR/eggnog.db.gz"
+                gunzip -f "\$EGGNOG_DB_DIR/eggnog_proteins.dmnd.gz"
+                
+                tar -xzf "\$EGGNOG_DB_DIR/eggnog.taxa.tar.gz" -C "\$EGGNOG_DB_DIR"
+                rm -f "\$EGGNOG_DB_DIR/eggnog.taxa.tar.gz"
 
-    # Validate inputs
-    if [ ! -s "${protein_fasta}" ] || [ ! -s "${gff_file}" ]; then
-        echo "ERROR: Protein FASTA or GFF file is missing or empty. Skipping functional annotation." >> ${prefix}_error.log
+                tar -xzf "\$EGGNOG_DB_DIR/mmseqs.tar.gz" -C "\$EGGNOG_DB_DIR"
+                rm -f "\$EGGNOG_DB_DIR/mmseqs.tar.gz"
+
+                echo ">>> Manual EggNOG database installation complete." >> ${meta.id}_error.log
+            else
+                echo ">>> Reusing existing EggNOG database (populated by parallel process)" >> ${meta.id}_error.log
+            fi
+        ) 201>"\$EGGNOG_DB_DIR/.download.lock"
+    else
+        echo ">>> Verified existing EggNOG database files at \$EGGNOG_DB_DIR" >> ${meta.id}_error.log
+    fi
+    
+    # -------------------------------------------------------------------------
+    # 2. Validate inputs
+    # -------------------------------------------------------------------------
+    if [ ! -s "${proteins}" ] || [ ! -s "${gff}" ]; then
+        echo "ERROR: Protein FASTA or GFF file is missing or empty. Skipping functional annotation." >> ${meta.id}_error.log
         exit 1
     fi
-
-    # Setup GeneMark
+    
+    # -------------------------------------------------------------------------
+    # 3. GeneMark setup
+    # -------------------------------------------------------------------------
     mkdir -p gmes
-    if [ -s "${genemark_key}" ]; then
+    if [ -s "${gm_key}" ] && [ "${gm_key.name}" != "NO_FILE" ]; then
         export HOME=\$(pwd)
-        gunzip -c "${genemark_key}" > "\$HOME/.gm_key"
+        gunzip -c "${gm_key}" > "\$HOME/.gm_key"
     else
-        echo "ERROR: GeneMark key missing: ${genemark_key}" >> ${prefix}_error.log
+        echo "ERROR: GeneMark key missing." >> ${meta.id}_error.log
         exit 1
     fi
-
-    if [ -s "${genemark_tar}" ]; then
-        tar -xzf ${genemark_tar} -C gmes
+    
+    if [ -s "${gmes_tar}" ] && [ "${gmes_tar.name}" != "NO_FILE" ]; then
+        tar -xzf "${gmes_tar}" -C gmes
         subdir=\$(find gmes -mindepth 1 -maxdepth 1 -type d | head -n1)
         if [ -n "\$subdir" ]; then
             mv "\$subdir"/* gmes/
@@ -65,109 +92,127 @@ process FUNCTIONAL_ANNOTATION {
         chmod +x gmes/gmes_petap.pl
         (cd gmes && perl change_path_in_perl_scripts.pl \$(which perl))
     else
-        echo "ERROR: GeneMark tar missing: ${genemark_tar}" >> ${prefix}_error.log
+        echo "ERROR: GeneMark tarball missing." >> ${meta.id}_error.log
         exit 1
     fi
     export GENEMARK_PATH=\$(realpath gmes)
     export PATH=\$GENEMARK_PATH:\$PATH
-
-    # Setup Phobius
-    if [ -s "${phobius_tarball}" ]; then
-        tar -zxf ${phobius_tarball};
+    
+    # -------------------------------------------------------------------------
+    # 4. Phobius setup
+    # -------------------------------------------------------------------------
+    if [ -s "${phobius_tar}" ] && [ "${phobius_tar.name}" != "NO_PHOBIUS_TARBALL.empty" ]; then
+        tar -zxf "${phobius_tar}"
     else
-        echo "WARNING: Phobius tarball missing, skipping Phobius annotation" >> ${prefix}_error.log
+        echo "WARNING: Phobius tarball missing, skipping Phobius annotation" >> ${meta.id}_error.log
         touch phobius.results.txt
     fi
-
-    # SignalP6 setup
-    if [ -s "${signalp_tarball}" ]; then
-        echo "Installing SignalP from tarball: ${signalp_tarball}" >> ${prefix}_error.log
+    
+    # -------------------------------------------------------------------------
+    # 5. SignalP6 setup
+    # -------------------------------------------------------------------------
+    if [ -s "${signalp_tar}" ] && [ "${signalp_tar.name}" != "NO_SIGNALP_TARBALL.empty" ]; then
+        echo "Installing SignalP from tarball..." >> ${meta.id}_error.log
         mkdir -p signalp6
-        if ! tar -xzf "${signalp_tarball}" -C signalp6; then
-            echo "ERROR: Failed to extract ${signalp_tarball}" >> ${prefix}_error.log
-            exit 1
-        fi
-        # Create and activate virtual environment
+        tar -xzf "${signalp_tar}" -C signalp6
         python3 -m venv signalp_venv
         source signalp_venv/bin/activate
-        if ! pip install signalp6/signalp6_fast/signalp-6-package/ >> ${prefix}_error.log 2>&1; then
-            echo "ERROR: Failed to install signalp module via pip" >> ${prefix}_error.log
-            exit 1
-        fi
-        if ! pip install 'numpy<2' >> ${prefix}_error.log 2>&1; then
-            echo "ERROR: Failed to install numpy<2 via pip" >> ${prefix}_error.log
-            exit 1
-        fi
-        SP_DIR=\$(python3 -c 'import signalp; import os; print(os.path.dirname(signalp.__file__))' 2>> ${prefix}_error.log || echo "")
+        pip install signalp6/signalp6_fast/signalp-6-package/ >> ${meta.id}_error.log 2>&1
+        pip install 'numpy<2' >> ${meta.id}_error.log 2>&1
+        
+        SP_DIR=\$(python3 -c 'import signalp; import os; print(os.path.dirname(signalp.__file__))' 2>> ${meta.id}_error.log || echo "")
         if [ -n "\$SP_DIR" ]; then
-            echo "SignalP module found at: \$SP_DIR" >> ${prefix}_error.log
-            if ! cp -r signalp6/signalp6_fast/signalp-6-package/models/* "\$SP_DIR/model_weights/" >> ${prefix}_error.log 2>&1; then
-                echo "WARNING: Failed to copy SignalP model weights to \$SP_DIR/model_weights/" >> ${prefix}_error.log
-            fi
-        else
-            echo "ERROR: SignalP module not found after installation" >> ${prefix}_error.log
-            exit 1
+            cp -r signalp6/signalp6_fast/signalp-6-package/models/* "\$SP_DIR/model_weights/" >> ${meta.id}_error.log 2>&1
         fi
-        # Run SignalP
-        if ! signalp6 --output_dir ${prefix}_signalp -org euk --mode fast -format txt -fasta "${protein_fasta}" --write_procs ${task.cpus} 2>> ${prefix}_error.log; then
-            echo "WARNING: SignalP6 execution failed" >> ${prefix}_error.log
+        
+        if ! signalp6 --output_dir ${meta.id}_signalp -org euk --mode fast -format txt -fasta "${proteins}" --write_procs ${task.cpus} 2>> ${meta.id}_error.log; then
+            echo "WARNING: SignalP6 execution failed" >> ${meta.id}_error.log
         fi
         deactivate
     else
-        echo "WARNING: SignalP tarball missing, skipping SignalP annotation" >> ${prefix}_error.log
+        echo "WARNING: SignalP tarball missing, skipping SignalP annotation" >> ${meta.id}_error.log
+    fi
+    
+    # -------------------------------------------------------------------------
+    # 6. Funannotate database setup
+    # -------------------------------------------------------------------------
+    export FUNANNOTATE_DB="\$(realpath ${funannotate_db})"
+    
+    if [[ ! -d "\$FUNANNOTATE_DB" ]]; then
+        if [[ "\$FUNANNOTATE_DB" == *"/work/funannotate_db" ]]; then
+            mkdir -p "\$FUNANNOTATE_DB"
+        else
+            echo "ERROR: Provided DB path \$FUNANNOTATE_DB does not exist." >> ${meta.id}_error.log
+            echo "       Please run: funannotate setup --install all -b ${meta.busco_db_fun ?: 'metazoa'} --wget -f --database \$FUNANNOTATE_DB" >> ${meta.id}_error.log
+            exit 1
+        fi
     fi
 
-    # funannotate_db setup
-    if ${use_setup}; then
-        mkdir -p ./funannotate_db
-        funannotate setup --install all -b ${busco_db_fun} --wget -f --database ./funannotate_db
-        export FUNANNOTATE_DB=\$(realpath ./funannotate_db)
+    if [[ -f "\$FUNANNOTATE_DB/funannotate-db-info.txt" ]]; then
+        echo ">>> Using existing funannotate database at \$FUNANNOTATE_DB" >> ${meta.id}_error.log
     else
-        export FUNANNOTATE_DB="${funanno_db}"
+        (
+            flock -x 200
+            if [[ ! -f "\$FUNANNOTATE_DB/funannotate-db-info.txt" ]]; then
+                echo ">>> Installing funannotate database to \$FUNANNOTATE_DB" >> ${meta.id}_error.log
+                funannotate setup --install all -b ${meta.busco_db_fun ?: 'metazoa'} --wget -f --database "\$FUNANNOTATE_DB" >> ${meta.id}_error.log 2>&1
+            else
+                echo ">>> Reusing existing funannotate database at \$FUNANNOTATE_DB" >> ${meta.id}_error.log
+            fi
+        ) 200>"\$FUNANNOTATE_DB/.install.lock"
     fi
-
-    # Fix permissions for aux_scripts
+    
+    # -------------------------------------------------------------------------
+    # 7. Fix permissions for aux_scripts
+    # -------------------------------------------------------------------------
     SITE_PACKAGES=\$(python3 -c 'import site; print(site.getsitepackages()[0])' 2>/dev/null || echo "")
-    echo "SITE_PACKAGES: \$SITE_PACKAGES" >> ${prefix}_error.log
     if [ -n "\$SITE_PACKAGES" ]; then
         AUX_SCRIPTS_DIR="\$SITE_PACKAGES/funannotate/aux_scripts"
-        echo "AUX_SCRIPTS_DIR: \$AUX_SCRIPTS_DIR" >> ${prefix}_error.log
         if [ -d "\$AUX_SCRIPTS_DIR" ]; then
-            chmod -R +x "\$AUX_SCRIPTS_DIR" 2>> ${prefix}_error.log || {
-                echo "WARNING: Failed to set executable permissions for \$AUX_SCRIPTS_DIR" >> ${prefix}_error.log
-            }
-        else
-            echo "WARNING: Directory \$AUX_SCRIPTS_DIR not found" >> ${prefix}_error.log
+            chmod -R +x "\$AUX_SCRIPTS_DIR" 2>> ${meta.id}_error.log || true
         fi
-    else
-        echo "WARNING: Could not determine site-packages directory for Python" >> ${prefix}_error.log
     fi
-
-
-    # Run Phobius
+    
+    # -------------------------------------------------------------------------
+    # 8. Phobius run execution
+    # -------------------------------------------------------------------------
     if [ -d "phobius" ]; then
-        phobius/phobius.pl -short "${protein_fasta}" > phobius.results.txt 2>> ${prefix}_error.log
-    else
-        echo "WARNING: Phobius directory not found, skipping Phobius annotation" >> ${prefix}_error.log
+        phobius/phobius.pl -short "${proteins}" > phobius.results.txt 2>> ${meta.id}_error.log
+    fi
+    
+    # -------------------------------------------------------------------------
+    # 9. InterProScan
+    # -------------------------------------------------------------------------
+    funannotate iprscan -i "${proteins}" -m docker -c ${task.cpus} -o ${meta.id}_iprscan.xml 2>> ${meta.id}_error.log
+    
+    # -------------------------------------------------------------------------
+    # 10. EggNOG Map
+    # -------------------------------------------------------------------------
+    emapper.py --cpu ${task.cpus} -m mmseqs --data_dir "\$EGGNOG_DB_DIR" -i "${proteins}" -o ${meta.id}_eggnog 2>> ${meta.id}_error.log
+    
+    # -------------------------------------------------------------------------
+    # 11. Funannotate final synthesis
+    # -------------------------------------------------------------------------
+    # Build arguments safely into a bash array
+    ANNOTATE_ARGS=(
+        --gff "${gff}"
+        --fasta "${genome}"
+        --species "${meta.species}"
+        --busco_db "${meta.busco_db_fun ?: 'metazoa'}"
+        --eggnog "${meta.id}_eggnog.emapper.annotations"
+        --iprscan "${meta.id}_iprscan.xml"
+        --cpus "${task.cpus}"
+        -o "${meta.id}_functional_annotation"
+    )
+
+    if [ -f "${meta.id}_signalp/prediction_results.txt" ]; then
+        ANNOTATE_ARGS+=("--signalp" "${meta.id}_signalp/prediction_results.txt")
     fi
 
-    # Run InterProScan
-    funannotate iprscan -i "${protein_fasta}" -m docker -c ${task.cpus} -o ${prefix}_iprscan.xml 2>> ${prefix}_error.log
+    if [ -s "phobius.results.txt" ]; then
+        ANNOTATE_ARGS+=("--phobius" "phobius.results.txt")
+    fi
 
-    # Run EggNOG
-    emapper.py --cpu ${task.cpus} -m mmseqs --data_dir "\$eggnog_db_dir" -i "${protein_fasta}" -o ${prefix}_eggnog 2>> ${prefix}_error.log
-
-    # Run Funannotate annotate
-    funannotate annotate \\
-        --gff "${gff_file}" \\
-        --fasta "${genome_unmasked}" \\
-        --species "${species}" \\
-        --busco_db ${busco_db_fun} \\
-        --eggnog ${prefix}_eggnog.emapper.annotations \\
-        --iprscan ${prefix}_iprscan.xml \\
-        --phobius phobius.results.txt \\
-        --signalp ${prefix}_signalp/prediction_results.txt \\
-        --cpus ${task.cpus} \\
-        -o ${prefix}_functional_annotation 2>> ${prefix}_error.log
+    funannotate annotate "\${ANNOTATE_ARGS[@]}" 2>> ${meta.id}_error.log
     """
 }
