@@ -9,6 +9,7 @@ params.script_dir = "$projectDir/scripts"
 params.rnaseq_stranded = 'no'
 params.mode = 'both'
 params.func_annotation = false
+params.funannotate_db = "${launchDir}/work/funannotate_db"
 
 // =============== VALIDATION ===============
 def valid_modes = ['both', 'braker', 'funannotate']
@@ -63,6 +64,13 @@ workflow {
     def optionalParams = parseCsvToMap(params.optional_csv, 'Optional')
     optionalParams.stranded = optionalParams.stranded ?: params.rnaseq_stranded
     
+    // Core file directory resolution logic for Nextflow channels
+    def finalDbPath = (optionalParams.funanno_DB && file(optionalParams.funanno_DB).exists()) ? 
+        file(optionalParams.funanno_DB) : file("${launchDir}/work/funannotate_db")
+
+    def finalEggnogPath = (optionalParams.eggnog_DB && file(optionalParams.eggnog_DB).exists()) ? 
+        file(optionalParams.eggnog_DB) : file("${launchDir}/work/eggnog_db")
+
     def fullMeta = [
         id: mandatoryParams.name,
         species: mandatoryParams.species.replaceAll(" ", "_"),
@@ -71,7 +79,7 @@ workflow {
         busco_db_fun: mandatoryParams.busco_db_fun ?: '',
         stranded: optionalParams.stranded,
         gc_probability: optionalParams.gc_probability ?: '',
-        funanno_DB: optionalParams.funanno_DB ?: ''
+        funanno_DB: finalDbPath.toString()
     ]
     
     TRNASCAN_SE(Channel.of([fullMeta, file(mandatoryParams.genome_masked)]), Channel.of(file(params.script_dir)))
@@ -96,23 +104,36 @@ workflow {
         ]
     }
 
-    def findGenemarkFiles = { dir ->
-        def f = new File(dir).listFiles()
-        def key = file(f.find{ it.name.startsWith('gm_key') && it.name.endsWith('.gz') }.path)
-        def tar = file(f.find{ it.name.startsWith('gmes_linux') && it.name.endsWith('.tar.gz') }.path)
-        return [key, tar]
-    }
-    def (gmKeyFile, gmesFile) = findGenemarkFiles(mandatoryParams.genemark_dir)
+    def f = new File(mandatoryParams.genemark_dir).listFiles()
+    def gmKeyFile = file(f.find{ it.name.startsWith('gm_key') && it.name.endsWith('.gz') }.path)
+    def gmesFile = file(f.find{ it.name.startsWith('gmes_linux') && it.name.endsWith('.tar.gz') }.path)
 
     if (params.mode == 'both' || params.mode == 'funannotate') {
         def funannotate_input = TRNASCAN_SE.out.highconf
             .combine(rnaseq_outputs.gtf).combine(rnaseq_outputs.bam).combine(rnaseq_outputs.transcripts).combine(rnaseq_outputs.r1).combine(rnaseq_outputs.r2)
             .map { tuple ->
                 def meta = tuple[0]
-                def safeF = { p -> (p && p.toString() != "" && !p.toString().contains('NO_') && file(p).exists()) ? file(p) : file("${workflow.workDir}/NO_FILE") }
-                def nano = optionalParams.nanopore_mrna ? safeF(optionalParams.nanopore_mrna) : file("${workflow.workDir}/NO_FILE")
-                def pb   = optionalParams.pacbio_isoseq ? safeF(optionalParams.pacbio_isoseq) : file("${workflow.workDir}/NO_FILE")
-                [meta, file(mandatoryParams.genome_masked), file(mandatoryParams.genome_unmasked), tuple[1], file(mandatoryParams.protein_evidence), tuple[3], tuple[5], tuple[7], tuple[9], tuple[11], gmKeyFile, gmesFile, nano, pb]
+                
+                def safeF = { p, label -> 
+                    if (p && p.toString() != "" && !p.toString().contains('NO_') && file(p).exists()) {
+                        return file(p)
+                    } else {
+                        def fallback = file("${workflow.workDir}/${meta.id}_${label}_NO_FILE.empty")
+                        if (!fallback.exists()) fallback.text = ''
+                        return fallback
+                    }
+                }
+                
+                def nano = safeF(optionalParams.nanopore_mrna, "NANO")
+                def pb   = safeF(optionalParams.pacbio_isoseq, "PACBIO")
+                
+                def cleanGtf = tuple[3].toString().contains('NO_GTF')         ? safeF(null, "GTF")         : tuple[3]
+                def cleanBam = tuple[5].toString().contains('NO_BAM')         ? safeF(null, "BAM")         : tuple[5]
+                def cleanTx  = tuple[7].toString().contains('NO_TRANSCRIPTS') ? safeF(null, "TRANSCRIPTS") : tuple[7]
+                def cleanR1  = tuple[9].toString().contains('NO_R1')          ? safeF(null, "R1")          : tuple[9]
+                def cleanR2  = tuple[11].toString().contains('NO_R2')         ? safeF(null, "R2")          : tuple[11]
+
+                [meta, file(mandatoryParams.genome_masked), file(mandatoryParams.genome_unmasked), tuple[1], file(mandatoryParams.protein_evidence), cleanGtf, cleanBam, cleanTx, cleanR1, cleanR2, gmKeyFile, gmesFile, nano, pb]
             }
         FUNANNOTATE(funannotate_input)
     }
@@ -189,12 +210,15 @@ workflow {
                     protein_fasta = (br_prot && file(br_prot).exists() && file(br_prot).size() > 0) ? file(br_prot) : no_prot
                     gff_file = (br_gff && file(br_gff).exists() && file(br_gff).size() > 0) ? file(br_gff) : no_gff
                 }
-                [meta, protein_fasta, gff_file, file(mandatoryParams.genome_unmasked),
-                 optionalParams.funanno_DB ? file(optionalParams.funanno_DB) : dummy_files[7],
-                 optionalParams.eggnog_DB ? file(optionalParams.eggnog_DB) : dummy_files[8],
-                 gmKeyFile, gmesFile,
-                 optionalParams.func_tool_dir ? file("${optionalParams.func_tool_dir}/phobius101_linux.tgz") : dummy_files[9],
-                 optionalParams.func_tool_dir ? file("${optionalParams.func_tool_dir}/signalp-6.0h.fast.tar.gz") : dummy_files[10]]
+
+                [
+                    meta, protein_fasta, gff_file, file(mandatoryParams.genome_unmasked),
+                    finalDbPath,
+                    finalEggnogPath,
+                    gmKeyFile, gmesFile,
+                    optionalParams.func_tool_dir ? file("${optionalParams.func_tool_dir}/phobius101_linux.tgz") : dummy_files[9],
+                    optionalParams.func_tool_dir ? file("${optionalParams.func_tool_dir}/signalp-6.0h.fast.tar.gz") : dummy_files[10]
+                ]
             }
         FUNCTIONAL_ANNOTATION(functional_annotation_input)
     }
