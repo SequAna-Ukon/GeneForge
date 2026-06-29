@@ -1,4 +1,4 @@
-# GeneForge v2.0
+# GeneForge v2.1
 **A Nextflow Pipeline for Eukaryotic Gene Prediction and Functional Annotation**
 
 GeneForge is a high-throughput Nextflow pipeline designed for the comprehensive structural and functional annotation of eukaryotic genomes. It orchestrates the parallel execution of BRAKER3 and FunAnnotate, evaluates their performance, and provides a unified functional annotation suite.
