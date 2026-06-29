@@ -1,0 +1,229 @@
+#!/usr/bin/env nextflow
+nextflow.enable.dsl=2
+
+// =============== PARAMETERS ===============
+params.mandatory_csv = 'mandatory.csv'
+params.optional_csv = 'optional.csv'
+params.outdir = 'results'
+params.script_dir = "$projectDir/scripts"
+params.rnaseq_stranded = 'no'
+params.mode = 'both'
+params.func_annotation = false
+params.funannotate_db = "${launchDir}/work/funannotate_db"
+
+// =============== VALIDATION ===============
+def valid_modes = ['both', 'braker', 'funannotate']
+if (!valid_modes.contains(params.mode)) {
+    exit 1, "ERROR: Invalid mode '${params.mode}'. Valid modes are: ${valid_modes.join(', ')}"
+}
+
+// =============== CSV PARSING ===============
+def parseCsvToMap(filePath, csvType = 'Mandatory') {
+    if (!file(filePath).exists()) exit 1, "ERROR: ${csvType} CSV file ${filePath} not found!"
+    def text = file(filePath).text.trim()
+    def lines = text.split('\n')
+    if (lines.size() < 2) exit 1, "ERROR: ${csvType} CSV file ${filePath} needs at least 2 lines"
+    def headers = lines[0].split(',').collect { it.trim() }
+    def values = lines[1].split(',', -1).collect { it.trim() }
+    def map = [:]
+    headers.eachWithIndex { h, i -> map[h] = (i < values.size() && values[i]) ? values[i] : null }
+    return map
+}
+
+// =============== DUMMY FILES ===============
+def hidden_dummy_dir = file("$projectDir/.dummies")
+hidden_dummy_dir.mkdirs()
+def DUMMY_PLUS_BAM  = file("$hidden_dummy_dir/NO_PLUS_BAM.bam")
+def DUMMY_MINUS_BAM = file("$hidden_dummy_dir/NO_MINUS_BAM.bam")
+if (!DUMMY_PLUS_BAM.exists())  DUMMY_PLUS_BAM.text = ''
+if (!DUMMY_MINUS_BAM.exists()) DUMMY_MINUS_BAM.text = ''
+
+def dummy_files = [
+    "${workflow.workDir}/NO_GTF_FILE.gtf",          // [0]
+    "${workflow.workDir}/NO_BAM_FILE.bam",          // [1]
+    "${workflow.workDir}/NO_TRANSCRIPTS.fasta",     // [2]
+    "${workflow.workDir}/NO_R1.fastq.gz",           // [3]
+    "${workflow.workDir}/NO_R2.fastq.gz",           // [4]
+    "${workflow.workDir}/NO_PROTEINS.fa",           // [5]
+    "${workflow.workDir}/NO_GFF3.gff3",             // [6]
+    "${workflow.workDir}/NO_FUNANNO_DB.empty",      // [7]
+    "${workflow.workDir}/NO_EGGNOG_DB.empty",       // [8]
+    "${workflow.workDir}/NO_PHOBIUS_TARBALL.empty",  // [9]
+    "${workflow.workDir}/NO_SIGNALP_TARBALL.empty",  // [10]
+    "${workflow.workDir}/NO_NANOPORE.fasta",         // [11] Added for caching fix
+    "${workflow.workDir}/NO_PACBIO.fasta"            // [12] Added for caching fix
+].collect { file(it, checkIfExists: false) }
+
+dummy_files.each { f -> if (!f.exists()) { f.parent.mkdirs(); f.text = '' } }
+
+// =============== MODULE INCLUDES ===============
+include { TRNASCAN_SE }          from './modules/trnascan_se.nf'
+include { RNASEQ_PROCESSING }    from './modules/rnaseq_processing.nf'
+include { FUNANNOTATE }          from './modules/funannotate.nf'
+include { BRAKER }               from './modules/braker.nf'
+include { MERGE_ANNOTATIONS }    from './modules/merge_annotations.nf'
+include { FUNCTIONAL_ANNOTATION} from './modules/func_annotate.nf'
+
+workflow {
+    def mandatoryParams = parseCsvToMap(params.mandatory_csv, 'Mandatory')
+    def optionalParams = parseCsvToMap(params.optional_csv, 'Optional')
+    optionalParams.stranded = optionalParams.stranded ?: params.rnaseq_stranded
+
+    // Core file directory resolution logic for Nextflow channels
+    def finalDbPath = (optionalParams.funanno_DB && file(optionalParams.funanno_DB).exists()) ?
+        file(optionalParams.funanno_DB) : file("${launchDir}/work/funannotate_db")
+
+    def finalEggnogPath = (optionalParams.eggnog_DB && file(optionalParams.eggnog_DB).exists()) ?
+        file(optionalParams.eggnog_DB) : file("${launchDir}/work/eggnog_db")
+
+    def fullMeta = [
+        id: mandatoryParams.name,
+        species: mandatoryParams.species.replaceAll(" ", "_"),
+        organism: mandatoryParams.organism,
+        busco_db: mandatoryParams.busco_db,
+        busco_db_fun: mandatoryParams.busco_db_fun ?: '',
+        stranded: optionalParams.stranded,
+        gc_probability: optionalParams.gc_probability ?: '',
+        funanno_DB: finalDbPath.toString()
+    ]
+
+    TRNASCAN_SE(Channel.of([fullMeta, file(mandatoryParams.genome_masked)]), Channel.of(file(params.script_dir)))
+    def trna_gff_channel = TRNASCAN_SE.out.gff
+
+    def has_rnaseq = optionalParams.rnaseq_dir && file(optionalParams.rnaseq_dir).exists()
+    def rnaseq_outputs
+
+    if (has_rnaseq) {
+        def proc = RNASEQ_PROCESSING(Channel.of(fullMeta), Channel.of(file(mandatoryParams.genome_unmasked)), Channel.of(file(optionalParams.rnaseq_dir)), Channel.of(file(params.script_dir)), Channel.of(optionalParams.stranded))
+        rnaseq_outputs = [
+            gtf: proc.gtf, bam: proc.bam, transcripts: proc.transcripts,
+            r1: proc.trimmed_r1, r2: proc.trimmed_r2,
+            plus_bam: proc.plus_strand, minus_bam: proc.minus_strand
+        ]
+    } else {
+        rnaseq_outputs = [
+            gtf: Channel.of([fullMeta, dummy_files[0]]), bam: Channel.of([fullMeta, dummy_files[1]]),
+            transcripts: Channel.of([fullMeta, dummy_files[2]]), r1: Channel.of([fullMeta, dummy_files[3]]),
+            r2: Channel.of([fullMeta, dummy_files[4]]), plus_bam: Channel.of([fullMeta, DUMMY_PLUS_BAM]),
+            minus_bam: Channel.of([fullMeta, DUMMY_MINUS_BAM])
+        ]
+    }
+
+    def f = new File(mandatoryParams.genemark_dir).listFiles()
+    def gmKeyFile = file(f.find{ it.name.startsWith('gm_key') && it.name.endsWith('.gz') }.path)
+    def gmesFile = file(f.find{ it.name.startsWith('gmes_linux') && it.name.endsWith('.tar.gz') }.path)
+
+    if (params.mode == 'both' || params.mode == 'funannotate') {
+        // 1. Resolve long reads safely OUTSIDE the dynamic map tracking to preserve cache
+        def safeFileFallback = { pathStr, dummyFile ->
+            if (pathStr && pathStr.toString() != "" && !pathStr.toString().contains('NO_') && file(pathStr).exists()) {
+                return file(pathStr)
+            }
+            return dummyFile
+        }
+
+        def nano_file = safeFileFallback(optionalParams.nanopore_mrna, dummy_files[11])
+        def pb_file   = safeFileFallback(optionalParams.pacbio_isoseq, dummy_files[12])
+
+        // 2. Build the input stream using pure, immutable channel data
+        def funannotate_input = TRNASCAN_SE.out.highconf
+            .combine(rnaseq_outputs.gtf)
+            .combine(rnaseq_outputs.bam)
+            .combine(rnaseq_outputs.transcripts)
+            .combine(rnaseq_outputs.r1)
+            .combine(rnaseq_outputs.r2)
+            .map { tuple ->
+                def meta = tuple[0]
+
+                def cleanGtf = tuple[3].toString().contains('NO_GTF')         ? dummy_files[0] : tuple[3]
+                def cleanBam = tuple[5].toString().contains('NO_BAM')         ? dummy_files[1] : tuple[5]
+                def cleanTx  = tuple[7].toString().contains('NO_TRANSCRIPTS') ? dummy_files[2] : tuple[7]
+                def cleanR1  = tuple[9].toString().contains('NO_R1')          ? dummy_files[3] : tuple[9]
+                def cleanR2  = tuple[11].toString().contains('NO_R2')         ? dummy_files[4] : tuple[11]
+
+                [meta, file(mandatoryParams.genome_masked), file(mandatoryParams.genome_unmasked), tuple[1], file(mandatoryParams.protein_evidence), cleanGtf, cleanBam, cleanTx, cleanR1, cleanR2, gmKeyFile, gmesFile, nano_file, pb_file]
+            }
+
+        FUNANNOTATE(funannotate_input)
+    }
+
+    if (params.mode == 'both' || params.mode == 'braker') {
+        def braker_input = Channel.of(fullMeta)
+            .combine(Channel.of(file(mandatoryParams.genome_masked)))
+            .combine(Channel.of(file(mandatoryParams.protein_evidence)))
+            .combine(rnaseq_outputs.bam.map { it[1] })
+            .combine(fullMeta.stranded in ['forward', 'reverse'] ? rnaseq_outputs.plus_bam.map { it[1] } : Channel.of(DUMMY_PLUS_BAM))
+            .combine(fullMeta.stranded in ['forward', 'reverse'] ? rnaseq_outputs.minus_bam.map { it[1] } : Channel.of(DUMMY_MINUS_BAM))
+            .combine(Channel.of(fullMeta.gc_probability))
+            .map { meta, genome, proteins, bam, plus, minus, gc -> [meta, genome, proteins, bam, plus, minus, gc] }
+
+        // Additional inputs now passed directly to merged BRAKER
+        def genome_unmasked_ch = Channel.of(file(mandatoryParams.genome_unmasked))
+        def script_dir_ch      = Channel.of(file(params.script_dir))
+
+        BRAKER(
+            braker_input,
+            genome_unmasked_ch,
+            trna_gff_channel.map { _, g -> g },
+            script_dir_ch
+        )
+    }
+
+    // =============== DUMMY FALLBACKS ===============
+    def no_prot = dummy_files[5]
+    def no_gff  = dummy_files[6]
+
+    def fa_proteins = (params.mode in ['both', 'funannotate']) ? FUNANNOTATE.out.proteins : Channel.of([fullMeta, no_prot]).ifEmpty([fullMeta, no_prot])
+    def fa_gff3     = (params.mode in ['both', 'funannotate']) ? FUNANNOTATE.out.gff3     : Channel.of([fullMeta, no_gff]).ifEmpty([fullMeta, no_gff])
+    def br_proteins = (params.mode in ['both', 'braker'])      ? BRAKER.out.proteins      : Channel.of([fullMeta, no_prot]).ifEmpty([fullMeta, no_prot])
+    def br_gff3     = (params.mode in ['both', 'braker'])      ? BRAKER.out.gff3          : Channel.of([fullMeta, no_gff]).ifEmpty([fullMeta, no_gff])
+
+    // =============== UNIFIED MERGE AND EVALUATION ===============
+    if (params.mode == 'both') {
+        def combined_input = FUNANNOTATE.out.busco_summary
+            .combine(BRAKER.out.busco_summary, by: 0)
+            .combine(FUNANNOTATE.out.proteins, by: 0)
+            .combine(FUNANNOTATE.out.gff3, by: 0)
+            .combine(BRAKER.out.proteins, by: 0)
+            .combine(BRAKER.out.gff3, by: 0)
+            .combine(trna_gff_channel, by: 0)
+            .combine(Channel.of([fullMeta, file(mandatoryParams.genome_unmasked)]), by: 0)
+            .map { meta, fa_busco, br_busco, fa_prot, fa_gff, br_prot, br_gff, trna_gff_file, genome ->
+                [meta, fa_busco, br_busco, fa_prot, fa_gff, br_prot, br_gff, trna_gff_file, genome]
+            }
+
+        MERGE_ANNOTATIONS(combined_input, Channel.of(file(params.script_dir)))
+    }
+
+    // =============== FUNCTIONAL ANNOTATION ===============
+    if (params.func_annotation) {
+        def functional_annotation_input = fa_gff3
+            .combine(fa_proteins, by: 0)
+            .combine(br_gff3, by: 0)
+            .combine(br_proteins, by: 0)
+            .map { meta, fa_gff, fa_prot, br_gff, br_prot ->
+                def protein_fasta = no_prot
+                def gff_file = no_gff
+                if (params.mode == 'funannotate') {
+                    protein_fasta = (fa_prot && file(fa_prot).exists() && file(fa_prot).size() > 0) ? file(fa_prot) : no_prot
+                    gff_file      = (fa_gff  && file(fa_gff).exists()  && file(fa_gff).size()  > 0) ? file(fa_gff)  : no_gff
+                } else if (params.mode == 'braker' || params.mode == 'both') {
+                    protein_fasta = (br_prot && file(br_prot).exists() && file(br_prot).size() > 0) ? file(br_prot) : no_prot
+                    gff_file      = (br_gff  && file(br_gff).exists()  && file(br_gff).size()  > 0) ? file(br_gff)  : no_gff
+                }
+                [
+                    meta, protein_fasta, gff_file, file(mandatoryParams.genome_unmasked),
+                    finalDbPath.toString(),
+                    finalEggnogPath.toString(),
+                    gmKeyFile, gmesFile,
+                    optionalParams.func_tool_dir ? file("${optionalParams.func_tool_dir}/phobius101_linux.tgz")      : dummy_files[9],
+                    optionalParams.func_tool_dir ? file("${optionalParams.func_tool_dir}/signalp-6.0h.fast.tar.gz") : dummy_files[10]
+                ]
+            }
+        FUNCTIONAL_ANNOTATION(functional_annotation_input)
+    }
+}
+
+workflow.onComplete {
+    log.info "Pipeline completed! Results in: ${params.outdir}"
+}

@@ -1,0 +1,23 @@
+abstract: '<p><strong>GeneForge</strong> is a flexible Nextflow pipeline for gene
+  prediction and optional functional annotation of eukaryotic genomes. It integrates
+  BRAKER3 and FunAnnotate for gene prediction, compares their quality using BUSCO,
+  and supports functional annotation with tools such as Phobius, InterProScan, and
+  eggNOG-mapper. The pipeline offers three run modes: BRAKER3 only, FunAnnotate only,
+  or both, with customizable parameters for species, input paths, and annotation preferences.</p>'
+authors:
+- affiliation: University of Konstanz
+  family-names: Sharaf
+  given-names: Abdoallah
+  orcid: 0000-0002-3436-9290
+- affiliation: University of Konstanz
+  family-names: Voolstra
+  given-names: Christian R.
+  orcid: 0000-0003-4555-3795
+cff-version: 1.2.0
+date-released: '2026-02-07'
+doi: 10.5281/zenodo.18520645
+license:
+- cc-by-4.0
+message: If you use this software, please cite it using the metadata from this file.
+title: 'SequAna-Ukon/GeneForge: GeneForge v2.0'
+type: software
