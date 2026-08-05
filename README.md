@@ -51,6 +51,7 @@ The functional annotation module now auto-downloads and unpacks the full InterPr
   - **Functional Tools**: Phobius (`phobius101_linux.tgz`) and SignalP (`signalp-6.0h.fast.tar.gz`)
 
 ---
+
 ## Installation
 ```bash
 git clone https://github.com/yourusername/GeneForge.git
@@ -77,7 +78,7 @@ Triggered by `--func_annotation`. Runs Phobius, SignalP6, EggNOG-mapper, and Int
 
 ## Workflow Overview
 
-![GeneForge Workflow Overview](GeneForge2_WF)
+![GeneForge Workflow Overview](GeneForge2_WF.jpg)
 
 1. **tRNA Scanning**: `TRNASCAN_SE` identifies eukaryotic tRNAs and generates high-confidence `.tbl` and `.gff` outputs.
 2. **RNA-seq Processing**: `RNASEQ_PROCESSING` trims reads, aligns with STAR, assembles with StringTie, and optionally splits BAMs by strand.
