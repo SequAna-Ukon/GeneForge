@@ -19,7 +19,7 @@ All modules now run inside purpose-built Docker/Singularity containers, eliminat
 | `abdoallahsharaf/geneforge-funannotate-func:2.1` | EggNOG-mapper, InterProScan, Phobius, SignalP6 |
 
 ### Long-Read RNA-seq Support
-`--nanopore_mrna` and `--pacbio_isoseq` inputs are now fully integrated into the FunAnnotate training step. Long reads are automatically preprocessed: FASTQ→FASTA conversion, U→T substitution, and length filtering (≥200 bp) to prevent seqclean `IndexError` downstream.
+`--nanopore_mrna` and `--pacbio_isoseq` inputs are now fully integrated into the FunAnnotate training step. Long reads are automatically preprocessed: FASTQ→FASTA conversion, U→T substitution, and length filtering (≥200 bp).
 
 ### Protein Evidence Pre-filtering
 A diamond blastp + seqtk subseq step is now inserted between `funannotate train` and `funannotate predict`. PASA TransDecoder peptides are used as query against the full protein database, and only matching proteins are passed to prediction. This avoids the multi-week exonerate runtimes caused by large databases (e.g., full Metazoa UniProt).
