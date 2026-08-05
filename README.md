@@ -19,24 +19,13 @@ All modules now run inside purpose-built Docker/Singularity containers, eliminat
 | `abdoallahsharaf/geneforge-funannotate-func:2.1` | EggNOG-mapper, InterProScan, Phobius, SignalP6 |
 
 ### Long-Read RNA-seq Support
-`--nanopore_mrna` and `--pacbio_isoseq` inputs are now fully integrated into the FunAnnotate training step. Long reads are automatically preprocessed: FASTQ→FASTA conversion, U→T substitution, and length filtering (≥200 bp) to prevent seqclean `IndexError` downstream.
+`--nanopore_mrna` and `--pacbio_isoseq` inputs are now fully integrated into the FunAnnotate training step. Long reads are automatically preprocessed: FASTQ→FASTA conversion, U→T substitution, and length filtering (≥200 bp).
 
 ### Protein Evidence Pre-filtering
 A diamond blastp + seqtk subseq step is now inserted between `funannotate train` and `funannotate predict`. PASA TransDecoder peptides are used as query against the full protein database, and only matching proteins are passed to prediction. This avoids the multi-week exonerate runtimes caused by large databases (e.g., full Metazoa UniProt).
 
-### Strand-Aware BAM Splitting
-RNASEQ_PROCESSING now produces strand-specific BAM files (`_plus_strand.bam`, `_minus_strand.bam`) for stranded libraries. These are passed directly to BRAKER via `--bam=plus,minus` with `--stranded=+,-`, improving intron hint accuracy for stranded protocols.
-
-### Robust Dummy-File Handling
-Dummy placeholder files are now written to `workflow.workDir` (not `projectDir`) and cleaned up via `workflow.onComplete`. Nanopore and PacBio dummies (indices 11 and 12) were added to prevent Nextflow cache invalidation on re-runs without long reads.
-
 ### InterProScan Self-Installation
 The functional annotation module now auto-downloads and unpacks the full InterProScan 5.67-99.0 64-bit distribution on first run if not already present, with flock-based protection against parallel downloads.
-
-### Improved Error Resilience
-- BRAKER and FUNANNOTATE processes use `errorStrategy = 'ignore'` so a single-tool failure does not abort the pipeline in `both` mode.
-- GeneMark-ET failures in FunAnnotate automatically retry with GeneMark-ES.
-- All processes initialize required output files before execution to prevent Nextflow tracking crashes on early failures.
 
 ---
 
@@ -62,6 +51,7 @@ The functional annotation module now auto-downloads and unpacks the full InterPr
   - **Functional Tools**: Phobius (`phobius101_linux.tgz`) and SignalP (`signalp-6.0h.fast.tar.gz`)
 
 ---
+
 ## Installation
 ```bash
 git clone https://github.com/yourusername/GeneForge.git
@@ -88,26 +78,7 @@ Triggered by `--func_annotation`. Runs Phobius, SignalP6, EggNOG-mapper, and Int
 
 ## Workflow Overview
 
-```
-tRNAscan-SE ──────────────────────────────────────────────────────────┐
-                                                                       │
-RNA-seq (short + long) ──► RNASEQ_PROCESSING                          │
-                               │                                       │
-                   ┌───────────┴───────────┐                          │
-                   ▼                       ▼                          │
-              BRAKER3                 FUNANNOTATE                      │
-           (evidence-based)      (protein pre-filtered)               │
-                   │                       │                          │
-                   └───────────┬───────────┘                          │
-                               ▼                                      │
-                        COMPARE_BUSCO                                  │
-                               │                                      │
-                               ▼                                      │
-                      MERGE_ANNOTATIONS ◄────────────────────────────┘
-                               │
-                               ▼
-                    FUNCTIONAL_ANNOTATION (optional)
-```
+![GeneForge Workflow Overview](GeneForge2_WF.jpg)
 
 1. **tRNA Scanning**: `TRNASCAN_SE` identifies eukaryotic tRNAs and generates high-confidence `.tbl` and `.gff` outputs.
 2. **RNA-seq Processing**: `RNASEQ_PROCESSING` trims reads, aligns with STAR, assembles with StringTie, and optionally splits BAMs by strand.
@@ -141,10 +112,6 @@ Core genomic data and species information.
 
 **Format**: `name,species,organism,busco_db,busco_db_fun,genome_masked,genome_unmasked,protein_evidence,genemark_dir`
 
-```csv
-name,species,organism,busco_db,busco_db_fun,genome_masked,genome_unmasked,protein_evidence,genemark_dir
-Aip,Exaiptasia diaphana,other,metazoa_odb10,metazoa,/path/to/genome.fasta.masked,/path/to/genome.fasta,/path/to/proteins.fa,/path/to/genemark
-```
 
 | Field | Description |
 | :--- | :--- |
@@ -164,10 +131,6 @@ RNA-seq data, databases, and third-party tool paths.
 
 **Format**: `rnaseq_dir,funanno_DB,eggnog_DB,stranded,nanopore_mrna,pacbio_isoseq,gc_probability,func_tool_dir`
 
-```csv
-rnaseq_dir,funanno_DB,eggnog_DB,stranded,nanopore_mrna,pacbio_isoseq,gc_probability,func_tool_dir
-/path/to/rnaseq,/path/to/funannotate_DB,/path/to/eggnog_DB,reverse,/path/to/ONT.fastq.gz,,0.6377,/path/to/tools
-```
 
 | Field | Description |
 | :--- | :--- |
@@ -200,19 +163,6 @@ Results are organized under `results/`:
 
 ---
 
-## Resource Configuration
-
-Default resource labels (adjustable in `nextflow.config`):
-
-| Label | CPUs | Memory |
-| :--- | :--- | :--- |
-| `process_low` | 8 | 16 GB |
-| `process_medium` | 30 | 50 GB |
-| `process_high` | 50 | 100 GB |
-
-Gene prediction processes (`BRAKER`, `FUNANNOTATE`) use `process_high` and run with `errorStrategy = 'ignore'` so a failure in one does not abort the other.
-
----
 
 ## License & Attribution
 
