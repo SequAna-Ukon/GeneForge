@@ -38,19 +38,20 @@ if (!DUMMY_PLUS_BAM.exists())  DUMMY_PLUS_BAM.text = ''
 if (!DUMMY_MINUS_BAM.exists()) DUMMY_MINUS_BAM.text = ''
 
 def dummy_files = [
-    "${workflow.workDir}/NO_GTF_FILE.gtf",          // [0]
-    "${workflow.workDir}/NO_BAM_FILE.bam",          // [1]
-    "${workflow.workDir}/NO_TRANSCRIPTS.fasta",     // [2]
-    "${workflow.workDir}/NO_R1.fastq.gz",           // [3]
-    "${workflow.workDir}/NO_R2.fastq.gz",           // [4]
-    "${workflow.workDir}/NO_PROTEINS.fa",           // [5]
-    "${workflow.workDir}/NO_GFF3.gff3",             // [6]
-    "${workflow.workDir}/NO_FUNANNO_DB.empty",      // [7]
-    "${workflow.workDir}/NO_EGGNOG_DB.empty",       // [8]
-    "${workflow.workDir}/NO_PHOBIUS_TARBALL.empty",  // [9]
-    "${workflow.workDir}/NO_SIGNALP_TARBALL.empty",  // [10]
-    "${workflow.workDir}/NO_NANOPORE.fasta",         // [11] Added for caching fix
-    "${workflow.workDir}/NO_PACBIO.fasta"            // [12] Added for caching fix
+    "${hidden_dummy_dir}/NO_GTF_FILE.gtf",          // [0]
+    "${hidden_dummy_dir}/NO_BAM_FILE.bam",          // [1]
+    "${hidden_dummy_dir}/NO_TRANSCRIPTS.fasta",     // [2]
+    "${hidden_dummy_dir}/NO_R1.fastq.gz",           // [3]
+    "${hidden_dummy_dir}/NO_R2.fastq.gz",           // [4]
+    "${hidden_dummy_dir}/NO_PROTEINS.fa",           // [5]
+    "${hidden_dummy_dir}/NO_GFF3.gff3",             // [6]
+    "${hidden_dummy_dir}/NO_FUNANNO_DB.empty",      // [7]
+    "${hidden_dummy_dir}/NO_EGGNOG_DB.empty",       // [8]
+    "${hidden_dummy_dir}/NO_PHOBIUS_TARBALL.empty",  // [9]
+    "${hidden_dummy_dir}/NO_SIGNALP_TARBALL.empty",  // [10]
+    "${hidden_dummy_dir}/NO_NANOPORE.fasta",         // [11] Added for caching fix
+    "${hidden_dummy_dir}/NO_PACBIO.fasta",           // [12] Added for caching fix
+    "${hidden_dummy_dir}/NO_HIGHCONF.tbl"             // [13] Dedicated tRNA highconf placeholder
 ].collect { file(it, checkIfExists: false) }
 
 dummy_files.each { f -> if (!f.exists()) { f.parent.mkdirs(); f.text = '' } }
@@ -137,13 +138,14 @@ workflow {
             .map { tuple ->
                 def meta = tuple[0]
 
-                def cleanGtf = tuple[3].toString().contains('NO_GTF')         ? dummy_files[0] : tuple[3]
-                def cleanBam = tuple[5].toString().contains('NO_BAM')         ? dummy_files[1] : tuple[5]
-                def cleanTx  = tuple[7].toString().contains('NO_TRANSCRIPTS') ? dummy_files[2] : tuple[7]
-                def cleanR1  = tuple[9].toString().contains('NO_R1')          ? dummy_files[3] : tuple[9]
-                def cleanR2  = tuple[11].toString().contains('NO_R2')         ? dummy_files[4] : tuple[11]
+                def cleanTrna = tuple[1].toString().contains('NO_')          ? dummy_files[13] : tuple[1]
+                def cleanGtf  = tuple[3].toString().contains('NO_GTF')         ? dummy_files[0] : tuple[3]
+                def cleanBam  = tuple[5].toString().contains('NO_BAM')         ? dummy_files[1] : tuple[5]
+                def cleanTx   = tuple[7].toString().contains('NO_TRANSCRIPTS') ? dummy_files[2] : tuple[7]
+                def cleanR1   = tuple[9].toString().contains('NO_R1')          ? dummy_files[3] : tuple[9]
+                def cleanR2   = tuple[11].toString().contains('NO_R2')         ? dummy_files[4] : tuple[11]
 
-                [meta, file(mandatoryParams.genome_masked), file(mandatoryParams.genome_unmasked), tuple[1], file(mandatoryParams.protein_evidence), cleanGtf, cleanBam, cleanTx, cleanR1, cleanR2, gmKeyFile, gmesFile, nano_file, pb_file]
+                [meta, file(mandatoryParams.genome_masked), file(mandatoryParams.genome_unmasked), cleanTrna, file(mandatoryParams.protein_evidence), cleanGtf, cleanBam, cleanTx, cleanR1, cleanR2, gmKeyFile, gmesFile, nano_file, pb_file]
             }
 
         FUNANNOTATE(funannotate_input)
@@ -198,30 +200,53 @@ workflow {
 
     // =============== FUNCTIONAL ANNOTATION ===============
     if (params.func_annotation) {
-        def functional_annotation_input = fa_gff3
-            .combine(fa_proteins, by: 0)
-            .combine(br_gff3, by: 0)
-            .combine(br_proteins, by: 0)
-            .map { meta, fa_gff, fa_prot, br_gff, br_prot ->
-                def protein_fasta = no_prot
-                def gff_file = no_gff
-                if (params.mode == 'funannotate') {
-                    protein_fasta = (fa_prot && file(fa_prot).exists() && file(fa_prot).size() > 0) ? file(fa_prot) : no_prot
-                    gff_file      = (fa_gff  && file(fa_gff).exists()  && file(fa_gff).size()  > 0) ? file(fa_gff)  : no_gff
-                } else if (params.mode == 'braker' || params.mode == 'both') {
-                    protein_fasta = (br_prot && file(br_prot).exists() && file(br_prot).size() > 0) ? file(br_prot) : no_prot
-                    gff_file      = (br_gff  && file(br_gff).exists()  && file(br_gff).size()  > 0) ? file(br_gff)  : no_gff
+
+        def functional_annotation_input
+
+        if (params.mode == 'both') {
+            // Functional annotation must run on the GeneForge-merged/complemented
+            // annotation (BUSCO-selected reference + complemented with the
+            // alternative + tRNA merge), NOT on raw BRAKER or funannotate output.
+            functional_annotation_input = MERGE_ANNOTATIONS.out.final_gff
+                .combine(MERGE_ANNOTATIONS.out.final_proteins, by: 0)
+                .map { meta, gff, prot ->
+                    [
+                        meta, prot, gff, file(mandatoryParams.genome_unmasked),
+                        finalDbPath.toString(),
+                        finalEggnogPath.toString(),
+                        finalInterproscanPath.toString(),
+                        gmKeyFile, gmesFile,
+                        optionalParams.func_tool_dir ? file("${optionalParams.func_tool_dir}/phobius101_linux.tgz")      : dummy_files[9],
+                        optionalParams.func_tool_dir ? file("${optionalParams.func_tool_dir}/signalp-6.0h.fast.tar.gz") : dummy_files[10]
+                    ]
                 }
-                [
-                    meta, protein_fasta, gff_file, file(mandatoryParams.genome_unmasked),
-                    finalDbPath.toString(),
-                    finalEggnogPath.toString(),
-                    finalInterproscanPath.toString(),
-                    gmKeyFile, gmesFile,
-                    optionalParams.func_tool_dir ? file("${optionalParams.func_tool_dir}/phobius101_linux.tgz")      : dummy_files[9],
-                    optionalParams.func_tool_dir ? file("${optionalParams.func_tool_dir}/signalp-6.0h.fast.tar.gz") : dummy_files[10]
-                ]
-            }
+        } else {
+            functional_annotation_input = fa_gff3
+                .combine(fa_proteins, by: 0)
+                .combine(br_gff3, by: 0)
+                .combine(br_proteins, by: 0)
+                .map { meta, fa_gff, fa_prot, br_gff, br_prot ->
+                    def protein_fasta = no_prot
+                    def gff_file = no_gff
+                    if (params.mode == 'funannotate') {
+                        protein_fasta = (fa_prot && file(fa_prot).exists() && file(fa_prot).size() > 0) ? file(fa_prot) : no_prot
+                        gff_file      = (fa_gff  && file(fa_gff).exists()  && file(fa_gff).size()  > 0) ? file(fa_gff)  : no_gff
+                    } else if (params.mode == 'braker') {
+                        protein_fasta = (br_prot && file(br_prot).exists() && file(br_prot).size() > 0) ? file(br_prot) : no_prot
+                        gff_file      = (br_gff  && file(br_gff).exists()  && file(br_gff).size()  > 0) ? file(br_gff)  : no_gff
+                    }
+                    [
+                        meta, protein_fasta, gff_file, file(mandatoryParams.genome_unmasked),
+                        finalDbPath.toString(),
+                        finalEggnogPath.toString(),
+                        finalInterproscanPath.toString(),
+                        gmKeyFile, gmesFile,
+                        optionalParams.func_tool_dir ? file("${optionalParams.func_tool_dir}/phobius101_linux.tgz")      : dummy_files[9],
+                        optionalParams.func_tool_dir ? file("${optionalParams.func_tool_dir}/signalp-6.0h.fast.tar.gz") : dummy_files[10]
+                    ]
+                }
+        }
+
         FUNCTIONAL_ANNOTATION(functional_annotation_input)
     }
 }

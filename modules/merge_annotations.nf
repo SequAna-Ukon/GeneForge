@@ -88,6 +88,9 @@ process MERGE_ANNOTATIONS {
     # ===============================================================
     echo "Starting GeneForge merging for ${prefix}" > ${prefix}_merge_annotations.log
     echo "Selected best annotation (via BUSCO): \${best_tool}" >> ${prefix}_merge_annotations.log
+    
+    # Wipe out pre-existing report files 
+    rm -f cleaned_report.txt complemented_report.txt
 
     if [[ "\${best_tool}" == "braker" ]]; then
         REF_GFF=${br_gff}
@@ -126,6 +129,15 @@ process MERGE_ANNOTATIONS {
     gffread ${prefix}_GeneForge.gff3 -g ${genome} -y ${prefix}.GeneForge.prot.fasta \\
         >> ${prefix}_merge_annotations.log 2>&1
 
+    # 6b. Sanitize translated proteins
+    
+    n_dots=\$(grep -v '^>' ${prefix}.GeneForge.prot.fasta | grep -o '\\.' | wc -l || true)
+    if [ "\$n_dots" -gt 0 ]; then
+        echo "WARNING: \$n_dots untranslatable dot residues found; replacing with X" >> ${prefix}_merge_annotations.log
+        sed -i '/^>/!s/\\./X/g' ${prefix}.GeneForge.prot.fasta
+    fi
+
+
     # 7. Run BUSCO on final proteins
     echo "Running BUSCO on final GeneForge proteins..." >> ${prefix}_merge_annotations.log
     /opt/conda/envs/busco6_env/bin/python3 /opt/conda/envs/busco6_env/bin/busco \\
@@ -148,3 +160,4 @@ process MERGE_ANNOTATIONS {
     echo "GeneForge pipeline completed for ${prefix}" >> ${prefix}_merge_annotations.log
     """
 }
+

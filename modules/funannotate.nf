@@ -12,7 +12,7 @@ process FUNANNOTATE {
     tuple val(meta),
           path(genome_masked),
           path(genome_unmasked),
-          val(highconf_tbl),
+          path(highconf_tbl),
           path(protein_evidence),
           path(gtf),
           path(bam),
@@ -37,8 +37,8 @@ process FUNANNOTATE {
     def organism      = meta.organism
     def busco_db      = meta.busco_db
     def busco_db_fun  = meta.busco_db_fun
-    def funanno_db    = meta.funanno_DB ?: "${launchDir}/work/funannotate_db"
-    def trnascan_flag = (highconf_tbl && file(highconf_tbl).exists()) ? "--trnascan ${highconf_tbl}" : ''
+    def funanno_db = meta.funanno_DB
+    def trnascan_flag = (highconf_tbl.name.contains('NO_')) ? '' : "--trnascan ${highconf_tbl}"
 
     def isReal = { f -> f && f.toString() != "" && !f.toString().contains('NO_') && !f.toString().endsWith('.empty') }
     def hasShortReads = isReal(rnaseq_r1) && isReal(rnaseq_r2)
@@ -119,14 +119,17 @@ process FUNANNOTATE {
         fi
     fi
 
-    if [[ -f "\$FUNANNOTATE_DB/funannotate-db-info.txt" ]]; then
-        echo ">>> Using existing funannotate database at \$FUNANNOTATE_DB" >> ${prefix}_error.log
+    if [[ -d "\$FUNANNOTATE_DB/${busco_db_fun}" ]] && [[ -f "\$FUNANNOTATE_DB/funannotate-db-info.txt" ]]; then
+        echo ">>> Using existing funannotate database at \$FUNANNOTATE_DB (lineage ${busco_db_fun} present)" >> ${prefix}_error.log
     else
         (
             flock -x 200
             if [[ ! -f "\$FUNANNOTATE_DB/funannotate-db-info.txt" ]]; then
                 echo ">>> Installing funannotate database to \$FUNANNOTATE_DB" >> ${prefix}_error.log
                 funannotate setup --install all -b ${busco_db_fun} --wget -f --database "\$FUNANNOTATE_DB"
+            elif [[ ! -d "\$FUNANNOTATE_DB/${busco_db_fun}" ]]; then
+                echo ">>> DB present but missing lineage ${busco_db_fun}; installing BUSCO lineage only" >> ${prefix}_error.log
+                funannotate setup -i busco -b ${busco_db_fun} --wget -f --database "\$FUNANNOTATE_DB"
             else
                 echo ">>> Reusing existing funannotate database at \$FUNANNOTATE_DB" >> ${prefix}_error.log
             fi
@@ -224,8 +227,8 @@ process FUNANNOTATE {
     fi
 
     # -------------------------------------------------------------------------
-    # 5b. Filter protein evidence using PASA TransDecoder proteins
-    # -------------------------------------------------------------------------
+    # 5b. Filter protein evidence
+    # ------------------------------------------------------------------------- 
     PROTEIN_EVIDENCE=""
 
     if [[ "${runProteinEvidence}" == "true" ]]; then
@@ -250,8 +253,25 @@ process FUNANNOTATE {
             echo "    Filtered DB size: \$(grep -c '>' filtered_proteins.fa) proteins" >> ${prefix}_error.log
             PROTEIN_EVIDENCE=\$(realpath filtered_proteins.fa)
         else
-            echo ">>> WARNING: PASA training directory or .pep not found, using original protein evidence" >> ${prefix}_error.log
-            PROTEIN_EVIDENCE=\$(realpath ${protein_evidence})
+            NPROT=\$(grep -c '>' ${protein_evidence})
+            echo "    Original DB size: \$NPROT proteins" >> ${prefix}_error.log
+
+            if [[ "\$NPROT" -gt 500000 ]]; then
+                echo ">>> Protein-only mode: no PASA training data available; clustering large protein evidence with diamond to avoid predict-stage OOM" >> ${prefix}_error.log
+                diamond cluster \\
+                    -d ${protein_evidence} \\
+                    -o clusters.tsv \\
+                    --approx-id 90 \\
+                    -M ${task.memory.toGiga()}G \\
+                    -p ${task.cpus} 2>> ${prefix}_error.log
+                cut -f1 clusters.tsv | sort -u > rep_ids.txt
+                seqtk subseq ${protein_evidence} rep_ids.txt > clustered_proteins.fa
+                echo "    Clustered DB size: \$(grep -c '>' clustered_proteins.fa) proteins" >> ${prefix}_error.log
+                PROTEIN_EVIDENCE=\$(realpath clustered_proteins.fa)
+            else
+                echo ">>> WARNING: PASA training directory or .pep not found, using original protein evidence" >> ${prefix}_error.log
+                PROTEIN_EVIDENCE=\$(realpath ${protein_evidence})
+            fi
         fi
     fi
 
@@ -293,13 +313,24 @@ process FUNANNOTATE {
     # -------------------------------------------------------------------------
     # 7. Update
     # -------------------------------------------------------------------------
-    funannotate update -i funannotate_${prefix} --species "${species}" \\
-     --cpus ${task.cpus} 2>> ${prefix}_error.log
+    HAS_TRAINING_DATA="false"
+    [[ -n "\$TRAIN_SR_FLAG" || -n "\$TRAIN_LR_FLAG" ]] && HAS_TRAINING_DATA="true"
+
+    if [[ "\$HAS_TRAINING_DATA" == "true" ]]; then
+        funannotate update -i funannotate_${prefix} --species "${species}" \\
+         --cpus ${task.cpus} 2>> ${prefix}_error.log
+    else
+        echo ">>> No RNA evidence used for training; skipping funannotate update" >> ${prefix}_error.log
+    fi
 
     # -------------------------------------------------------------------------
     # 8. Post-process
     # -------------------------------------------------------------------------
-    GFF_FILE=\$(find funannotate_${prefix}/update_results/ -name '*.gff3' | head -n1)
+    if [[ "\$HAS_TRAINING_DATA" == "true" ]]; then
+        GFF_FILE=\$(find funannotate_${prefix}/update_results/ -name '*.gff3' | head -n1)
+    else
+        GFF_FILE=\$(find funannotate_${prefix}/predict_results/ -name '*.gff3' | head -n1)
+    fi
     if [[ -f "\$GFF_FILE" ]]; then
         agat_sp_filter_by_ORF_size.pl -g \$GFF_FILE -s 50 -o ${prefix}_filtered.gff
         agat_sp_fix_overlaping_genes.pl -f ${prefix}_filtered_sup50.gff -o ${prefix}_funannotate.gff3

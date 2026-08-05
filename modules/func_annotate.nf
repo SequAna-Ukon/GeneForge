@@ -3,14 +3,13 @@ process FUNCTIONAL_ANNOTATION {
     label 'process_high'
 
     container 'docker://abdoallahsharaf/geneforge-funannotate-func:2.1'
-    publishDir "${params.outdir}/functional_annotation", mode: 'copy'
+    publishDir "${params.outdir}/functional_annotation/${meta.id}", mode: 'copy', saveAs: { filename -> file(filename).name }
 
     input:
     tuple val(meta), path(proteins), path(gff), path(genome), val(funannotate_db), val(eggnog_db), val(interproscan_db), path(gm_key), path(gmes_tar), path(phobius_tar), path(signalp_tar)
 
     output:
-    path("${meta.id}_functional_annotation"), emit: annotation_dir
-    path("${meta.id}_error.log"), emit: log
+    tuple val(meta), path("${meta.id}_functional_annotation/annotate_results/*"), emit: annotation_results
 
     script:
     """
@@ -235,6 +234,23 @@ process FUNCTIONAL_ANNOTATION {
         echo "ERROR: InterProScan produced no output XML" >> ${meta.id}_error.log
         exit 1
     fi
+    
+    # -------------------------------------------------------------------------
+    # 9.5. Pre-parse InterProScan XML
+    # -------------------------------------------------------------------------
+    mkdir -p "${meta.id}_functional_annotation/annotate_misc"
+    cp "${meta.id}_iprscan.xml" "${meta.id}_functional_annotation/annotate_misc/iprscan.xml"
+
+    python3 "${projectDir}/scripts/iprscan2annotations_streaming.py" \
+    "${meta.id}_functional_annotation/annotate_misc/iprscan.xml" \
+    "${meta.id}_functional_annotation/annotate_misc/annotations.iprscan.txt" \
+    2>> ${meta.id}_error.log
+
+    if [[ ! -s "${meta.id}_functional_annotation/annotate_misc/annotations.iprscan.txt" ]]; then
+        echo "WARNING: streaming InterProScan parse produced no output, funannotate will attempt its own parsing" >> ${meta.id}_error.log
+    fi
+
+
 
     # -------------------------------------------------------------------------
     # 10. EggNOG Map
@@ -250,7 +266,7 @@ process FUNCTIONAL_ANNOTATION {
         --species "${meta.species}"
         --busco_db "${meta.busco_db_fun ?: 'metazoa'}"
         --eggnog "${meta.id}_eggnog.emapper.annotations"
-        --iprscan "${meta.id}_iprscan.xml"
+        --iprscan "${meta.id}_functional_annotation/annotate_misc/iprscan.xml"
         --cpus "${task.cpus}"
         -o "${meta.id}_functional_annotation"
     )
