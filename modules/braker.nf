@@ -15,7 +15,7 @@ process BRAKER {
           path(plus_bam),
           path(minus_bam),
           val(gc_probability)
-    // braker_post inputs
+    
     path(genome_unmasked)
     path(trna_gff)
     path(script_dir)
