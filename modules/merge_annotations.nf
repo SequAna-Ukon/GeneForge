@@ -121,13 +121,12 @@ process MERGE_ANNOTATIONS {
         >> ${prefix}_merge_annotations.log 2>&1
 
     # 5. Remove residual Funannotate RNA/tRNA predictions
-    #    Retain independently annotated tRNAs and other annotation sources
+    # Retain independently annotated tRNAs and other annotation sources
     awk -F'\t' '
         BEGIN {OFS="\t"}
         /^#/ {print; next}
-        !($2 == "funannotate" && ($3 == "RNA" || $3 == "tRNA")) {print}
+        !(\$2 == "funannotate" && (\$3 == "RNA" || \$3 == "tRNA")) {print}
     ' with_trna.gff > ${prefix}_GeneForge.gff3
-
 
     # 6. Extract protein sequences
     gffread ${prefix}_GeneForge.gff3 -g ${genome} -y ${prefix}.GeneForge.prot.fasta \\
