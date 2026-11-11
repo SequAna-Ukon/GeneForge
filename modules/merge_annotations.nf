@@ -120,10 +120,14 @@ process MERGE_ANNOTATIONS {
     agat_sp_merge_annotations.pl --gff cleaned_no_trna.gff --gff ${trna_gff_file} --out with_trna.gff \\
         >> ${prefix}_merge_annotations.log 2>&1
 
-    # 5. Remove residual funannotate tRNAs and fix ncRNA designations
-    grep -v "funannotate"\$'\tRNA\t' with_trna.gff | grep -v "funannotate"\$'\ttRNA\t' > ${prefix}_GeneForge.gff3
-    sed -i 's/\tRNA\t/\tncRNA\t/g' ${prefix}_GeneForge.gff3
-    sed -i 's/;anticodon=[^;]*//g' ${prefix}_GeneForge.gff3
+    # 5. Remove residual Funannotate RNA/tRNA predictions
+    #    Retain independently annotated tRNAs and other annotation sources
+    awk -F'\t' '
+        BEGIN {OFS="\t"}
+        /^#/ {print; next}
+        !($2 == "funannotate" && ($3 == "RNA" || $3 == "tRNA")) {print}
+    ' with_trna.gff > ${prefix}_GeneForge.gff3
+
 
     # 6. Extract protein sequences
     gffread ${prefix}_GeneForge.gff3 -g ${genome} -y ${prefix}.GeneForge.prot.fasta \\
