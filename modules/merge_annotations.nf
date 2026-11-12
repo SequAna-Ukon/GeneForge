@@ -120,11 +120,12 @@ process MERGE_ANNOTATIONS {
     agat_sp_merge_annotations.pl --gff cleaned_no_trna.gff --gff ${trna_gff_file} --out with_trna.gff \\
         >> ${prefix}_merge_annotations.log 2>&1
 
-    # 5. Remove residual Funannotate RNA/tRNA predictions
-    # Retain independently annotated tRNAs and other annotation sources
+    # 5. Remove Funannotate-derived tRNA/RNA predictions
+    # AGAT represents the original Funannotate tRNAs as generic RNA features
     awk -F'\t' '
         BEGIN {OFS="\t"}
         /^#/ {print; next}
+        !(\$2 == "AGAT" && \$3 == "RNA") &&
         !(\$2 == "funannotate" && (\$3 == "RNA" || \$3 == "tRNA")) {print}
     ' with_trna.gff > ${prefix}_GeneForge.gff3
 
